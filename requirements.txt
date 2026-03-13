@@ -1,0 +1,2 @@
+playwright>=1.40      # Browser automation via CDP (Chromium DevTools Protocol)
+colorama>=0.4.6      # Colored terminal output for the interactive TUI
