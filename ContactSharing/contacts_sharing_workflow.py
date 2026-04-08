@@ -57,25 +57,9 @@ async def _delay(s: float, *, jitter: float) -> None:
 async def connect_page(playwright: Playwright, settings: Settings) -> Page:
     browser = await playwright.chromium.connect_over_cdp(settings.cdp_url)
     context = browser.contexts[0]
-    if not context.pages:
-        raise RuntimeError(
-            "No open pages found in the remote-debug browser. "
-            "Open CareerForge in that browser first."
-        )
-    # Prefer a tab that's already on CareerForge (especially the Contacts page),
-    # otherwise fall back to the first tab.
-    page: Page | None = None
-    for p in context.pages:
-        if "careerforge.us/cc-portal" in (p.url or "") and "emp_tab=contacts" in (p.url or ""):
-            page = p
-            break
-    if page is None:
-        for p in context.pages:
-            if "careerforge.us/cc-portal" in (p.url or ""):
-                page = p
-                break
-    if page is None:
-        page = context.pages[0]
+    # Always use a fresh tab so we never steal focus or navigation from
+    # whatever else you're doing in other tabs.
+    page = await context.new_page()
 
     try:
         await page.bring_to_front()
@@ -110,13 +94,46 @@ async def open_filter_modal(page: Page, settings: Settings) -> None:
     if await opened():
         return
 
-    # Anchor on the toolbar buttons that are reliably present on this page.
-    # In the UI screenshot, the filter icon button is immediately near "Export Contacts".
+    # Primary strategy: click the filter/sliders icon to the right of the search bar.
+    # This is the icon immediately to the left of the small circular count badge ("0").
+    try:
+        await page.evaluate(
+            """() => {
+              const searchInput =
+                document.querySelector('input[placeholder="Search for a contact"]') ||
+                document.querySelector('input[placeholder*="Search"]');
+              if (!searchInput) return { ok: false, why: "no_search_input" };
+
+              const r = searchInput.getBoundingClientRect();
+              const buttons = Array.from(document.querySelectorAll('button'));
+              // Find the nearest button to the right of the search input on the same row.
+              const candidates = buttons
+                .map(b => ({ b, br: b.getBoundingClientRect() }))
+                .filter(x =>
+                  x.br.width > 0 && x.br.height > 0 &&
+                  x.br.left >= r.right - 5 &&
+                  Math.abs(x.br.top - r.top) < 60 &&
+                  x.br.top < 220
+                )
+                .sort((a, b) => a.br.left - b.br.left);
+
+              if (!candidates.length) return { ok: false, why: "no_candidates" };
+
+              candidates[0].b.click();
+              return { ok: true };
+            }"""
+        )
+        await modal_title.wait_for(state="visible", timeout=2_500)
+        await _delay(settings.action_delay_s, jitter=settings.jitter_s)
+        return
+    except Exception:
+        pass
+
+    # Secondary strategy: anchor on the toolbar buttons that are reliably present on this page.
     export_btn = page.get_by_role("button", name="Export Contacts").first
     try:
         await export_btn.wait_for(state="visible", timeout=8_000)
     except Exception:
-        # If the toolbar didn't render, try one more short wait and proceed to brute-force scan.
         await _delay(1.0, jitter=settings.jitter_s)
 
     # Click the nearest visible icon button in the same toolbar region.
