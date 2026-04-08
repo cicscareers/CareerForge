@@ -60,11 +60,6 @@ async def connect_page(playwright: Playwright, settings: Settings) -> Page:
     # Always use a fresh tab so we never steal focus or navigation from
     # whatever else you're doing in other tabs.
     page = await context.new_page()
-
-    try:
-        await page.bring_to_front()
-    except Exception:
-        pass
     page.set_default_timeout(settings.action_timeout_ms)
     page.set_default_navigation_timeout(settings.navigation_timeout_ms)
     return page
@@ -129,84 +124,7 @@ async def open_filter_modal(page: Page, settings: Settings) -> None:
     except Exception:
         pass
 
-    # Secondary strategy: anchor on the toolbar buttons that are reliably present on this page.
-    export_btn = page.get_by_role("button", name="Export Contacts").first
-    try:
-        await export_btn.wait_for(state="visible", timeout=8_000)
-    except Exception:
-        await _delay(1.0, jitter=settings.jitter_s)
-
-    # Click the nearest visible icon button in the same toolbar region.
-    # Bubble renders these as <button class="bubble-element Icon ..."> with an <svg>.
-    # We walk leftward from Export Contacts and click the first visible icon-like button.
-    toolbar_candidates = export_btn.locator(
-        "xpath=preceding::button[.//svg or contains(@class,'Icon')][position()<=6]"
-    )
-
     last_exc: Exception | None = None
-    for i in range(min(await toolbar_candidates.count(), 6)):
-        btn = toolbar_candidates.nth(i)
-        try:
-            if not await btn.is_visible():
-                continue
-            await btn.scroll_into_view_if_needed()
-            await btn.click()
-            await page.get_by_text("Filter Contacts", exact=True).wait_for(state="visible", timeout=3_000)
-            await _delay(settings.action_delay_s, jitter=settings.jitter_s)
-            return
-        except Exception as exc:
-            last_exc = exc
-
-    # Fallback: brute-force click visible icon buttons until the modal appears.
-    icon_buttons = page.locator("button.bubble-element.Icon:visible")
-    for i in range(min(await icon_buttons.count(), 20)):
-        btn = icon_buttons.nth(i)
-        try:
-            await btn.click()
-            await modal_title.wait_for(state="visible", timeout=1_000)
-            await _delay(settings.action_delay_s, jitter=settings.jitter_s)
-            return
-        except Exception as exc:
-            last_exc = exc
-
-    # Final fallback: click top-of-page buttons (by position) until modal appears.
-    # This avoids clicking row menus inside the table.
-    try:
-        buttons = page.locator("button:visible")
-        count = min(await buttons.count(), 120)
-        for i in range(count):
-            b = buttons.nth(i)
-            try:
-                box = await b.bounding_box()
-                if not box:
-                    continue
-                # Only consider top toolbar-ish buttons
-                if box["y"] > 220:
-                    continue
-
-                text = ""
-                try:
-                    text = (await b.inner_text()).strip()
-                except Exception:
-                    text = ""
-
-                skip = {"Export Contacts", "Add Contact", "Apply Filters", "Save Changes", "Cancel"}
-                if text in skip:
-                    continue
-
-                await b.click()
-                await modal_title.wait_for(state="visible", timeout=750)
-                await _delay(settings.action_delay_s, jitter=settings.jitter_s)
-                return
-            except Exception as exc:
-                last_exc = exc
-                # Try to close any menus/popovers we might have opened.
-                try:
-                    await page.keyboard.press("Escape")
-                except Exception:
-                    pass
-    except Exception as exc:
-        last_exc = last_exc or exc
 
     # Save a screenshot to help debug selector drift
     try:
