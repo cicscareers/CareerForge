@@ -226,23 +226,40 @@ async def set_recruiting_role_filter_to_friendly_alum(page: Page, settings: Sett
         return
 
     modal = page.locator("div[role='dialog']").filter(has=page.get_by_text("Filter Contacts", exact=True)).first
+    await modal.wait_for(state="visible", timeout=8_000)
 
-    # Open the Recruiting Role dropdown by its label.
-    role_label = modal.get_by_text("Recruiting Role", exact=True)
-    await role_label.wait_for(state="visible")
-
-    # Bubble-style dropdowns: clicking near the current value usually opens it.
-    # Try clicking the element right of the label first, then fallback to clicking the current value.
-    dropdown = role_label.locator("xpath=following::div[contains(@class,'dropdown')][1]").first
+    # Locate the Recruiting Role field robustly (Bubble can add extra whitespace/newlines).
+    role_label = modal.get_by_text("Recruiting Role", exact=False).first
     try:
-        await dropdown.click()
+        await role_label.wait_for(state="visible", timeout=8_000)
     except Exception:
-        await modal.get_by_text("Choose an option", exact=False).click()
+        try:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            path = LOG_DIR / "contacts_filter_missing_recruiting_role.png"
+            await page.screenshot(path=str(path), full_page=True)
+            logger.info("Saved debug screenshot → %s", path)
+        except Exception:
+            pass
+        raise
+
+    # Click the dropdown value region in the same field block.
+    # Prefer clicking the "Choose an Option" text within the Recruiting Role area.
+    field_block = role_label.locator(
+        "xpath=ancestor-or-self::*[self::div or self::section][1]"
+    )
+    chooser = field_block.get_by_text("Choose", exact=False).first
+    try:
+        await chooser.click()
+    except Exception:
+        # Fallback: click the nearest visible element to the right of the label.
+        await role_label.locator(
+            "xpath=following::*[self::div or self::button][1]"
+        ).click()
 
     await _delay(0.3, jitter=settings.jitter_s)
 
     # Select "Friendly Alum"
-    await page.get_by_text("Friendly Alum", exact=True).click()
+    await page.get_by_text("Friendly Alum", exact=True).first.click()
     await _delay(settings.action_delay_s, jitter=settings.jitter_s)
 
     # Apply filters
