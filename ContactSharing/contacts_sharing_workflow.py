@@ -18,6 +18,8 @@ from playwright.async_api import (
 
 logger = logging.getLogger(__name__)
 
+LOG_DIR = Path("logs")
+
 
 CONTACTS_URL = "https://careerforge.us/cc-portal?tab=employers&emp_tab=contacts"
 
@@ -97,10 +99,25 @@ async def open_filter_modal(page: Page, settings: Settings) -> None:
         logger.info("[DRY RUN] Would open filter modal")
         return
 
+    modal_title = page.get_by_text("Filter Contacts", exact=True)
+
+    async def opened() -> bool:
+        try:
+            return await modal_title.is_visible()
+        except Exception:
+            return False
+
+    if await opened():
+        return
+
     # Anchor on the toolbar buttons that are reliably present on this page.
     # In the UI screenshot, the filter icon button is immediately near "Export Contacts".
     export_btn = page.get_by_role("button", name="Export Contacts").first
-    await export_btn.wait_for(state="visible")
+    try:
+        await export_btn.wait_for(state="visible", timeout=8_000)
+    except Exception:
+        # If the toolbar didn't render, try one more short wait and proceed to brute-force scan.
+        await _delay(1.0, jitter=settings.jitter_s)
 
     # Click the nearest visible icon button in the same toolbar region.
     # Bubble renders these as <button class="bubble-element Icon ..."> with an <svg>.
@@ -129,13 +146,61 @@ async def open_filter_modal(page: Page, settings: Settings) -> None:
         btn = icon_buttons.nth(i)
         try:
             await btn.click()
-            await page.get_by_text("Filter Contacts", exact=True).wait_for(state="visible", timeout=1_000)
+            await modal_title.wait_for(state="visible", timeout=1_000)
             await _delay(settings.action_delay_s, jitter=settings.jitter_s)
             return
         except Exception as exc:
             last_exc = exc
 
-    raise RuntimeError(f"Could not open Filter Contacts modal: {last_exc}")
+    # Final fallback: click top-of-page buttons (by position) until modal appears.
+    # This avoids clicking row menus inside the table.
+    try:
+        buttons = page.locator("button:visible")
+        count = min(await buttons.count(), 120)
+        for i in range(count):
+            b = buttons.nth(i)
+            try:
+                box = await b.bounding_box()
+                if not box:
+                    continue
+                # Only consider top toolbar-ish buttons
+                if box["y"] > 220:
+                    continue
+
+                text = ""
+                try:
+                    text = (await b.inner_text()).strip()
+                except Exception:
+                    text = ""
+
+                skip = {"Export Contacts", "Add Contact", "Apply Filters", "Save Changes", "Cancel"}
+                if text in skip:
+                    continue
+
+                await b.click()
+                await modal_title.wait_for(state="visible", timeout=750)
+                await _delay(settings.action_delay_s, jitter=settings.jitter_s)
+                return
+            except Exception as exc:
+                last_exc = exc
+                # Try to close any menus/popovers we might have opened.
+                try:
+                    await page.keyboard.press("Escape")
+                except Exception:
+                    pass
+    except Exception as exc:
+        last_exc = last_exc or exc
+
+    # Save a screenshot to help debug selector drift
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        path = LOG_DIR / "contacts_filter_open_failed.png"
+        await page.screenshot(path=str(path), full_page=True)
+        logger.info("Saved debug screenshot → %s", path)
+    except Exception:
+        pass
+
+    raise RuntimeError(f"Could not open Filter Contacts modal (url={page.url}): {last_exc}")
 
 
 async def set_recruiting_role_filter_to_friendly_alum(page: Page, settings: Settings) -> None:
