@@ -2,6 +2,25 @@
 
 Automates the CareerForge contacts sharing workflow for **Friendly Alum** contacts using Playwright over CDP.
 
+## Branch Usage (Current Branch)
+
+This README matches branch `automation/contacts-friendly-alum-sharing`.
+
+Use this branch with:
+
+```bash
+git checkout automation/contacts-friendly-alum-sharing
+python3 -m pip install -r requirements.txt
+playwright install chromium
+python3 ContactSharing/run_contacts_sharing.py --fast
+```
+
+Recommended run modes on this branch:
+
+- `--fast` for normal bulk runs (tuned delays/timeouts).
+- no flags for safer default timings.
+- `--dry-run` to verify selectors/flow without making changes.
+
 ## What It Does
 
 For each run, the script:
@@ -61,6 +80,12 @@ Useful flags:
 python3 ContactSharing/run_contacts_sharing.py --fast
 python3 ContactSharing/run_contacts_sharing.py --dry-run
 python3 ContactSharing/run_contacts_sharing.py --cdp-url http://localhost:9222
+```
+
+If you are launching from inside `ContactSharing/` instead of repo root:
+
+```bash
+python3 run_contacts_sharing.py --fast
 ```
 
 ## Troubleshooting
