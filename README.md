@@ -141,6 +141,29 @@ When you run without `--auto`, you get a prompt for each employer. Here's what y
 └── progress/                # checkpoint file + summary logs (auto-generated)
 ```
 
+## 🧭 How to navigate this codebase
+
+If you're new to this repo, use this path:
+
+1. Start with `main.py`
+   - Overall control flow, CLI flags, interactive approvals, retries.
+2. Then read `automation.py`
+   - Browser/CDP logic for the employer custom-properties workflow.
+3. Then `csv_parser.py` + `careerforge_properties.py`
+   - Data cleaning/validation and allowed field values/tag mappings.
+4. Then `checkpoint.py`
+   - Resume logic and progress persistence behavior.
+5. Finally `config.py`
+   - Timeouts, delays, paths, and runtime toggles.
+
+For the contacts-sharing automation added on this branch:
+
+- Start at `ContactSharing/run_contacts_sharing.py` (thin launcher).
+- Main logic is in `ContactSharing/contacts_sharing_workflow.py`.
+- Operational docs for that workflow:
+  - `ContactSharing/README.md`
+  - `ContactSharing/WORKFLOW.md`
+
 ## 💾 Progress & resuming
 
 You don't have to do all 1,200 employers in one sitting. The tool has your back:
